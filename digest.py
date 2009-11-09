@@ -13,11 +13,11 @@ class DigestAuthMixin(object):
         # A1 = unq(username-value) ":" unq(realm-value) ":" passwd
 
         username = self.params["username"]
-        return "%s:%s:%s" % (username, self.params['realm'], auth_pass)
+        return "%s:%s:%s" % (username, self.realm, auth_pass)
 
         # Not implemented: if 'algorithm' is 'MD5-Sess', A1 is:
         # A1 = H( unq(username-value) ":" unq(realm-value) ":" passwd )
-        #         ":" unq(nonce-value) ":" unq(cnonce-value)
+        #  ":" unq(nonce-value) ":" unq(cnonce-value)
 
     def A2(self):
         """
@@ -58,13 +58,13 @@ class DigestAuthMixin(object):
         except:
             self.params = []
 
-    def _createNonce(self, realm):
-        return md5("%d:%s" % (time.time(), realm)).hexdigest()
+    def _createNonce(self):
+        return md5("%d:%s" % (time.time(), self.realm)).hexdigest()
 
-    def createAuthHeader(self, realm):
+    def createAuthHeader(self):
         self.set_status(401)
-        nonce = self._createNonce(realm)
-        self.set_header("WWW-Authenticate", "Digest algorithm=MD5 realm=%s qop=auth nonce=%s" % (realm, nonce))
+        nonce = self._createNonce()
+        self.set_header("WWW-Authenticate", "Digest algorithm=MD5 realm=%s qop=auth nonce=%s" % (self.realm, nonce))
         self.finish()
 
         return False
@@ -73,54 +73,49 @@ class DigestAuthMixin(object):
         if not hasattr(self,'realm'):
             self.realm = realm
 
-        print "Inside get_authenticated_user...\n"
         try:
-            """Sanity check the response header"""
             auth = self.request.headers.get('Authorization')
-            print "AUTH HEADERS: %s" % auth
             if auth == None:
-                print "NO AUTH HEADERS!\n"
-                return self.createAuthHeader(realm)
+                return self.createAuthHeader()
             elif not auth.startswith('Digest '):
-                print "AUTH MUST START WITH 'Digest '!\n"
-                return self.createAuthHeader(realm)
+                return self.createAuthHeader()
             else:
-                print "SETTING SELF.PARAMS\n\n"
                 self._parseHeader(auth)
-                print "SELF.PARAMS: ",self.params,"\n"
                 required_params = ['username', 'realm', 'nonce', 'uri', 'response', 'qop', 'nc', 'cnonce']
                 for k in required_params:
                     if not self.params.has_key(k):
                         print "REQUIRED PARAM %s MISSING\n" % k
-                        return self.createAuthHeader(realm)
+                        return self.createAuthHeader()
                     elif self.params[k] is None or self.params[k] == '':
                         print "REQUIRED PARAM %s IS NONE OR EMPTY\n" % k
-                        return self.createAuthHeader(realm)
+                        return self.createAuthHeader()
                     else:
-                        print k,":",self.params[k]
+                        continue
+                        #print k,":",self.params[k]
 
-            """get_creds_callback should return a dictionary, or false if the user doesn't exist"""
             creds = get_creds_callback(self.params['username'])
             if not creds:
-                print "EMPTY CREDS!\n"
-                self.send_error(400, 'creds empty')
+                self.send_error(400)
             else:
-                print "CREDS: ", creds
                 expected_response = self.response(creds['auth_password'])
                 actual_response = self.params['response']
-                print "EXPECTED RESPONSE: %s" % expected_response
-                print "ACTUAL RESPONSE: %s" % actual_response
 
             if expected_response and actual_response:
                 if expected_response == actual_response:
                     self._current_user = self.params['username']
-                    print "SUCCESS!!"
+                    print "Digest Auth user '%s' successful for realm '%s'. URI: '%s', IP: '%s'" % (self.params['username'], self.realm, self.request.uri, self.request.remote_ip)
                     return True
                 else:
-                    self.createAuthHeader(realm)
+                    self.createAuthHeader()
+
         except Exception as out:
             print "FELL THROUGH: %s\n" % out
-            return self.createAuthHeader(realm)
+            print "AUTH HEADERS: %s" % auth
+            print "SELF.PARAMS: ",self.params,"\n"
+            print "CREDS: ", creds
+            print "EXPECTED RESPONSE: %s" % expected_response
+            print "ACTUAL RESPONSE: %s" % actual_response
+            return self.createAuthHeader()
 
 
 def digest_auth(realm, auth_func):
