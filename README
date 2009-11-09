@@ -36,9 +36,8 @@ the hashed auth "response" from the user is valid.
 
 
 TODO: 
-* Massive cleanup
-* set 'self.realm' as soon as we enter get_authenticated_user
-* Implement proper errors instead of 'print' statements. 
+* cleanup
+* Implement proper errors and lose the 'print' statements. 
 * Return 'stale=True' if nonce is stale, but hashes to a valid response.
 * Testing for MD5-Sess and qop=auth-int
 * Work through the rest of the RFC to catch other edge cases. 
