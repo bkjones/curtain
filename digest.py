@@ -70,6 +70,9 @@ class DigestAuthMixin(object):
         return False
 
     def get_authenticated_user(self, get_creds_callback, realm):
+        if not hasattr(self,'realm'):
+            self.realm = realm
+
         print "Inside get_authenticated_user...\n"
         try:
             """Sanity check the response header"""
