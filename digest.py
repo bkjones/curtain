@@ -70,12 +70,16 @@ class DigestAuthMixin(object):
         return False
 
     def get_authenticated_user(self, get_creds_callback, realm):
+        creds = None
+        expected_response = None
+        actual_response = None
+        auth = None
         if not hasattr(self,'realm'):
             self.realm = realm
 
         try:
             auth = self.request.headers.get('Authorization')
-            if auth == None:
+            if not auth:
                 return self.createAuthHeader()
             elif not auth.startswith('Digest '):
                 return self.createAuthHeader()
@@ -83,10 +87,10 @@ class DigestAuthMixin(object):
                 self._parseHeader(auth)
                 required_params = ['username', 'realm', 'nonce', 'uri', 'response', 'qop', 'nc', 'cnonce']
                 for k in required_params:
-                    if not self.params.has_key(k):
+                    if k not in self.params:
                         print "REQUIRED PARAM %s MISSING\n" % k
                         return self.createAuthHeader()
-                    elif self.params[k] is None or self.params[k] == '':
+                    elif not self.params[k]:
                         print "REQUIRED PARAM %s IS NONE OR EMPTY\n" % k
                         return self.createAuthHeader()
                     else:
@@ -95,10 +99,13 @@ class DigestAuthMixin(object):
 
             creds = get_creds_callback(self.params['username'])
             if not creds:
-                self.send_error(400)
+                # the username passed to get_creds_callback didn't match any valid users.
+                self.createAuthHeader()
             else:
                 expected_response = self.response(creds['auth_password'])
                 actual_response = self.params['response']
+                print "Expected: %s" % expected_response
+                print "Actual: %s" % actual_response
 
             if expected_response and actual_response:
                 if expected_response == actual_response:
@@ -124,6 +131,8 @@ def digest_auth(realm, auth_func):
     """
     def digest_auth_decorator(func):
         def func_replacement(self, *args, **kwargs):
+            # 'self' here is the RequestHandler object, which is inheriting
+            # from DigestAuthMixin to get 'get_authenticated_user'
             if self.get_authenticated_user(auth_func, realm):
                 return func(self, *args, **kwargs)
         return func_replacement
