@@ -2,22 +2,34 @@ from tornado.web import *
 from hashlib import md5
 
 class DigestAuthMixin(object):
-    def H(self, data):
+    def apply_checksum(self, data):
         return md5(data).hexdigest()
 
-    def KD(self, secret, data):
-        return self.H(secret + ":" + data)
+    def apply_digest(self, secret, data):
+        return self.apply_checksum(secret + ":" + data)
 
-    def A1(self, auth_pass):
-        # If 'algorithm' is "MD5" or unset, A1 is:
-        # A1 = unq(username-value) ":" unq(realm-value) ":" passwd
+    def A1(self, algorithm, auth_pass):
+        """
+         If 'algorithm' is "MD5" or unset, A1 is:
+         A1 = unq(username-value) ":" unq(realm-value) ":" passwd
+
+         if 'algorithm' is 'MD5-Sess', A1 is:
+         A1 = H( unq(username-value) ":" unq(realm-value) ":" passwd )
+          ":" unq(nonce-value) ":" unq(cnonce-value)
+
+        """
 
         username = self.params["username"]
-        return "%s:%s:%s" % (username, self.realm, auth_pass)
+        if algorithm == 'MD5' or not algorithm:
+            return "%s:%s:%s" % (username, self.realm, auth_pass)
+        elif algorithm == 'MD5-Sess':
+            return self.apply_checksum('%s:%s:%s:%s:%s' % \
+                                       (username,
+                                       self.realm,
+                                       auth_pass,
+                                       self.params['nonce'],
+                                       self.params['cnonce']))
 
-        # Not implemented: if 'algorithm' is 'MD5-Sess', A1 is:
-        # A1 = H( unq(username-value) ":" unq(realm-value) ":" passwd )
-        #  ":" unq(nonce-value) ":" unq(cnonce-value)
 
     def A2(self):
         """
@@ -27,27 +39,35 @@ class DigestAuthMixin(object):
             A2 = Method ":" digest-uri-value ":" H(entity-body)
 
         """
-        if self.params['qop'] == 'auth' or self.params['qop'] == None or self.params['qop'] == '':
+        if self.params['qop'] == 'auth' or not self.params['qop']:
             return self.request.method + ":" + self.request.uri
         elif self.params['qop'] == 'auth-int':
-            print "UNSUPPORTED 'qop' METHOD\n"
-            #return self.request.method + ":" + self.request.uri + H(self.request.body)
+            #print "UNSUPPORTED 'qop' METHOD\n"
+            return ":".join([self.request.method,
+                             self.request.uri,
+                             self.apply_checksum(self.request.body)])
         else:
             print "A2 GOT BAD VALUE FOR 'qop': %s\n" % self.params['qop']
 
     def response(self, auth_pass):
-        if self.params.has_key("qop"):
-            return self.KD(self.H(self.A1(auth_pass)),
-                           self.params["nonce"]
-                           + ":" + self.params["nc"]
-                           + ":" + self.params["cnonce"]
-                           + ":" + self.params["qop"]
-                           + ":" + self.H(self.A2()))
+        if 'qop' in self.params:
+            auth_comps = [self.params['nonce'],
+                               self.params['nc'],
+                               self.params['cnonce'],
+                               self.params['qop'],
+                               self.apply_checksum(self.A2())]
+            return self.apply_digest(self.apply_checksum( \
+                                    self.A1(self.params.get('algorithm'),
+                                            auth_pass)),
+                                     ':'.join(auth_comps))
         else:
-            return self.KD(self.H(self.A1(auth_pass)), \
-                           self.params["nonce"] + ":" + self.H(self.A2()))
+            return self.apply_digest(self.apply_checksum( \
+                                    self.A1(self.params.get('algorithm'),
+                                            auth_pass)),
+                                    ':'.join([self.params["nonce"],
+                                              self.apply_checksum(self.A2())]))
 
-    def _parseHeader(self, authheader):
+    def _parse_header(self, authheader):
         try:
             n = len("Digest ")
             authheader = authheader[n:].strip()
@@ -58,12 +78,12 @@ class DigestAuthMixin(object):
         except:
             self.params = []
 
-    def _createNonce(self):
+    def _create_nonce(self):
         return md5("%d:%s" % (time.time(), self.realm)).hexdigest()
 
     def createAuthHeader(self):
         self.set_status(401)
-        nonce = self._createNonce()
+        nonce = self._create_nonce()
         self.set_header("WWW-Authenticate", "Digest algorithm=MD5 realm=%s qop=auth nonce=%s" % (self.realm, nonce))
         self.finish()
 
@@ -79,12 +99,10 @@ class DigestAuthMixin(object):
 
         try:
             auth = self.request.headers.get('Authorization')
-            if not auth:
-                return self.createAuthHeader()
-            elif not auth.startswith('Digest '):
+            if not auth or not auth.startswith('Digest '):
                 return self.createAuthHeader()
             else:
-                self._parseHeader(auth)
+                self._parse_header(auth)
                 required_params = ['username', 'realm', 'nonce', 'uri', 'response', 'qop', 'nc', 'cnonce']
                 for k in required_params:
                     if k not in self.params:
@@ -95,11 +113,11 @@ class DigestAuthMixin(object):
                         return self.createAuthHeader()
                     else:
                         continue
-                        #print k,":",self.params[k]
 
             creds = get_creds_callback(self.params['username'])
             if not creds:
-                # the username passed to get_creds_callback didn't match any valid users.
+                # the username passed to get_creds_callback didn't
+                # match any valid users.
                 self.createAuthHeader()
             else:
                 expected_response = self.response(creds['auth_password'])
