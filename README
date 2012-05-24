@@ -1,6 +1,9 @@
 curtain is a helper mixin class and accompanying decorator for people who
 would like to implement HTTP Digest authentication (RFC 2617) in their tornado
-applications (http://tornadoweb.org)
+applications (http://tornadoweb.org). 
+
+It is distributed under the same license as tornado itself (namely, the 
+Apache License, Version 2.0 http://www.apache.org/licenses/LICENSE-2.0.html)
 
 To use these tools, you can add the DigestAuthHandler mixin class to your
 app's handler's inheritance tree, like this: 
